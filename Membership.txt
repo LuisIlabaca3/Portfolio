@@ -1,0 +1,932 @@
+ * MEMBERSHIP VARIANCE REPORT 
+
+
+HELLO , PLEASE ADD RECIPIENTS TO THE MEMBERSHIP VARIANCE REPORT 
+
+EMAILS SHOULD BE IN QUOTES SEPARATED BY A COMMA ;
+
+
+
+ %let emailto =  
+(
+
+"LuisIlabaca3@gmail.com",
+"YourEmail@Gmail.com"
+)
+;
+
+
+
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+********************************************************************************************;   
+
+
+%let historic_threshold_percent = .5 ; 
+
+
+ %symdel;
+  
+
+data _null_;
+   call symputx('text_date', compress(catx('',"'",put( intnx('month', intnx('month', date() , 0 , 'BEGINNING' ) , -1, 'BEGINNING') ,date9.),"'d" ),' ','')) ;
+   call symputx('settlement', compress(catx('',"'",put( intnx('month', intnx('month', date() , 0 , 'BEGINNING' ) , -4, 'BEGINNING') ,date9.),"'d" ),' ','')) ;
+   call symputx('CurMo', put( intnx('month', intnx('month', date() , 0 , 'BEGINNING' ) , -1, 'BEGINNING') ,yymmn6.), 'g') ;
+   call symputx('LastMo', put( intnx('month', intnx('month', date() , 0 , 'BEGINNING' ) , -2, 'BEGINNING') ,yymmn6.), 'g') ;
+
+run;
+    
+
+
+libname Current  "/data/dept/medecon/prod/ServiceFund";
+libname Prior  "/data/dept/medecon/prod/ServiceFund/&LastMo.";
+
+
+%let user_name = &sysuserid ; 
+x "mkdir /data/dev/&user_name./Service_Fund/&CurMo.";
+x "mkdir /data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports";
+x "mkdir /data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report";
+
+  
+X "chmod 755 /data/dev/&user_name./Service_Fund";
+X "chmod 755 /data/dev/&user_name./Service_Fund/&CurMo.";
+X "chmod 755 /data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports";
+X "chmod 755 /data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report";
+
+
+
+proc sql;
+
+create table deal_terms as
+select LINE_OF_BUSINESS, SUPER_IPA, MASTER_IPA, IPA_ID, EFFECTIVE_DATE,term_Date  
+from SPDSSF2.SFS_DEAL_TERMS_&CurMo. ( where = ( deal_status in ('A','T','B'))) ;
+
+
+create table deal_terms_last_month as
+select LINE_OF_BUSINESS, SUPER_IPA, MASTER_IPA, IPA_ID, EFFECTIVE_DATE,term_Date  
+from SPDSSF2.SFS_DEAL_TERMS_&LastMo.   ( where = ( deal_status in ('A','T','B'))) ;
+
+
+create table deal_terms_&CurMo as
+select distinct
+coalesce(b.Roll_up_LOB,line_of_business) as roll_up_lob, a.IPA_ID, a.EFFECTIVE_DATE, a.term_Date 
+from deal_terms a 
+full join SPDSSF2.SF_LOB_X_walk b on a.LINE_OF_BUSINESS = b.SF_LOB;
+
+create table deal_terms_&LastMo as
+select distinct
+coalesce(b.Roll_up_LOB,line_of_business) as roll_up_lob, a.IPA_ID, a.EFFECTIVE_DATE, a.term_Date 
+from deal_terms_last_month a 
+full join SPDSSF2.SF_LOB_X_walk b on a.LINE_OF_BUSINESS = b.SF_LOB;
+
+
+quit;
+
+
+proc sql; create table membership_count_1 as 
+select a.* from current.sf_membership_count a inner join deal_terms_&CurMo b 
+on a.sf_lob = b.Roll_up_LOB and a.wdw_ipa_id = b.IPA_ID and  ( b.effective_date <= a.dsu_activity_date <= b.term_date );
+quit;
+
+proc sql; create table membership_count_2 as 
+select a.* from prior.sf_membership_count a inner join deal_terms_&CurMo b 
+on a.sf_lob = b.Roll_up_LOB and a.wdw_ipa_id = b.IPA_ID and  ( b.effective_date <= a.dsu_activity_date <= b.term_date );
+quit;
+
+proc sql; create table membership_count_3 as 
+select a.* from prior.sf_membership_count a inner join deal_terms_&LastMo b 
+on a.sf_lob = b.Roll_up_LOB and a.wdw_ipa_id = b.IPA_ID and  ( b.effective_date <= a.dsu_activity_date <= b.term_date );
+quit;
+
+
+*create summaries;
+
+data group_variables;
+input group_variables : $100. ;
+datalines;
+NAME
+dsu_activity_date
+sf_lob
+master_ipa
+wdw_ipa_id
+member_count
+;
+run;
+ 
+*************************************************************************************************************;
+*************************************************************************************************************;
+
+
+
+
+proc sql ; 
+create table join_same_vars as 
+select   
+catx(' ' , 'coalesce(',CATX('','A.',group_variables),CATX('','B.',group_variables),CATX('','C.',group_variables),')','AS', GROUP_VARIABLES) as master, 
+catx(' ' , CATX('','A.',group_variables),' AS', CATX('',group_variables ,  '_a'),' format comma30.0,') as va1,
+catx(' ' , CATX('','B.',group_variables),' AS', CATX('',group_variables ,  '_b'),' format comma30.0,') as va2,
+catx(' ' , CATX('','c.',group_variables),' AS', CATX('',group_variables ,  '_c'),' format comma30.0,') as va3,
+catx(' ' , 'sum(' ,catx('','a.',group_variables ,''),',-', catx('','b.',group_variables ,'') ,') as ',  catx('',group_variables,'dif format comma30.2,')  ) as var4,
+catx(' ' , 'sum(' ,catx('','a.',group_variables ,''),',-', catx('','c.',group_variables ,'') ,') as ',  catx('',group_variables,'dif format comma30.2,')  ) as var5
+from group_variables;
+quit;
+
+
+
+proc sql; create table joined as 
+select distinct 
+coalesce( A.sf_lob ,B.sf_lob, C.sf_lob ) AS sf_lob,
+coalesce( A.master_ipa, B.master_ipa ,C.master_ipa ) AS master_ipa,
+coalesce( A.wdw_ipa_id ,B.wdw_ipa_id, C.wdw_ipa_id ) AS wdw_ipa_id,
+coalesce( A.dsu_activity_date ,B.dsu_activity_date, C.dsu_activity_date ) AS dsu_activity_date format date9.,
+
+/*A.dsu_activity_date AS dsu_activity_date_a format date9.,*/
+/*A.sf_lob AS sf_lob_a ,*/
+/*A.master_ipa AS master_ipa_a,*/
+/*A.wdw_ipa_id AS wdw_ipa_id_a ,*/
+A.member_count AS member_count_a format comma30.0,
+
+/*B.dsu_activity_date AS dsu_activity_date_b  format date9.,*/
+/*B.sf_lob AS sf_lob_b ,*/
+/*B.master_ipa AS master_ipa_b ,*/
+/*B.wdw_ipa_id AS wdw_ipa_id_b ,*/
+B.member_count AS member_count_b format comma30.0,
+
+/*c.dsu_activity_date AS dsu_activity_date_c  format date9.,*/
+/*c.sf_lob AS sf_lob_c ,*/
+/*c.master_ipa AS master_ipa_c ,*/
+/*c.wdw_ipa_id AS wdw_ipa_id_c ,*/
+c.member_count AS member_count_c format comma30.0
+
+from membership_count_1 a 
+FULL join membership_count_2 b on a.sf_lob = b.sf_lob and a.master_ipa = b.master_ipa and a.wdw_ipa_id = b.wdw_ipa_id and a.dsu_activity_date = b.dsu_activity_date
+FULL join membership_count_3 c on a.sf_lob = c.sf_lob and a.master_ipa = c.master_ipa and a.wdw_ipa_id = c.wdw_ipa_id and a.dsu_activity_date = c.dsu_activity_date
+and b.sf_lob = c.sf_lob and b.master_ipa = c.master_ipa and b.wdw_ipa_id = c.wdw_ipa_id and b.dsu_activity_date = c.dsu_activity_date;
+quit;
+ 
+proc sql; create table ipa as 
+select 
+sf_lob, master_ipa, wdw_ipa_id, dsu_activity_date,
+sum(member_count_a) as member_count_a,
+sum(member_count_b) as member_count_b,
+sum(calculated member_count_a, - calculated member_count_b) as diff,
+calculated diff/ calculated member_count_b as diff_percent format percent10.3,
+sum(member_count_c) as member_count_c,
+sum(calculated member_count_b, - calculated member_count_c) as dt_diff
+from joined
+group by sf_lob, master_ipa, wdw_ipa_id, dsu_activity_date;
+quit;
+
+proc sql; create table lob as 
+select 
+sf_lob, dsu_activity_date,
+sum(member_count_a) as member_count_a,
+sum(member_count_b) as member_count_b,
+sum(calculated member_count_a, - calculated member_count_b) as diff,
+calculated diff/ calculated member_count_b as diff_percent format percent10.3,
+sum(member_count_c) as member_count_c,
+sum(calculated member_count_b, - calculated member_count_c) as dt_diff
+from joined
+group by sf_lob, dsu_activity_date;
+quit;
+
+
+ 
+
+
+
+
+data  ipa1 ipa2;
+set ipa;
+row_num = _n_;
+run;
+  
+proc sql; create table membership_change_ipa_FINAL as
+select 
+'WellCare' as Market,
+'Market' as total,
+a.sf_lob,
+a.master_ipa, a.wdw_ipa_id,
+a.dsu_activity_date,
+a.MEMBER_COUNT_b format comma30.0,
+a.MEMBER_COUNT_a format comma30.0,
+a.diff format comma30.0,
+a.diff_percent,
+ sum(-b.MEMBER_COUNT_a , a.MEMBER_COUNT_a)/b.MEMBER_COUNT_a as Member_Month_O_Month format percent10.3 ,
+ a.member_count_c format comma30.0,
+ a.dt_diff
+from ipa1 a full join ipa2 b
+on a.row_num = b.row_num + 1 and a.sf_lob = b.sf_lob and a.masteR_ipa = b.master_ipa and a.wdw_ipa_id = b.wdw_ipa_id
+where a.row_num is not missing;
+quit;
+
+proc sql; 
+drop table ipa;
+drop table ipa;
+quit;
+
+
+
+
+data  lob1 lob2;
+set lob;
+row_num = _n_;
+run;
+  
+proc sql; create table membership_change_lob_FINAL as
+select 
+'WellCare' as Market,
+'Market' as total,
+a.sf_lob,
+a.dsu_activity_date,
+a.MEMBER_COUNT_b format comma30.0,
+a.MEMBER_COUNT_a format comma30.0,
+a.diff format comma30.0,
+a.diff_percent,
+ sum(-b.MEMBER_COUNT_a , a.MEMBER_COUNT_a)/b.MEMBER_COUNT_a as Member_Month_O_Month format percent10.3 ,
+ a.member_count_c format comma30.0,
+ a.dt_diff
+from lob1 a full join lob2 b
+on a.row_num = b.row_num + 1 and a.sf_lob = b.sf_lob
+where a.row_num is not missing;
+quit;
+
+proc sql; 
+drop table lob1;
+drop table lob2;
+quit;
+
+ 
+PROC SQL; CREATE TABLE PRE_LOB AS 
+SELECT DISTINCT SF_LOB FROM lob ;
+QUIT;
+
+
+
+
+
+data PRE_LOB;
+format row $10. ;
+set PRE_LOB;
+row = _n_ - 1; 
+if row = 0 then row = '' ;
+row = compress(row , ' ' , '') ;
+run;   
+
+proc sql; create table PRE_LOB as 
+select * , 
+catx(' ',
+compress(catx("", ' " ' , '&workdir./email', row ,'.png',' " '), ' ',''),
+compress(catx('', 'inlined = "sgplot',row,'"'), ' ','')) as macro1,
+
+catx('', 
+'put "<img src =cid:sgplot',
+row,
+'>"') as macro2,
+ 
+
+
+
+catx('', 'line "<img src =cid:sgplot', row, '>"') as macro3
+
+from PRE_LOB;
+quit;
+
+proc sql noprint;
+select macro1 into : macro1 separated by ' ' from pre_lob;
+quit;
+%put &macro1;
+
+proc sql noprint;
+select macro2 into : macro2 separated by ' ' from pre_lob;
+quit;
+%put &macro2;
+
+proc sql noprint;
+select macro3 into : macro3 separated by ' ' from pre_lob;
+quit;
+%put &macro3;
+
+   
+
+
+ 
+proc sql; 
+create table MEMBERSHIP_CHANGE_LOB_email as
+select * from MEMBERSHIP_CHANGE_LOB_FINAL where sf_lob in (select distinct sf_lob from pre_lob);
+run;
+
+data membership_change_ipa_FINALa;
+set membership_change_ipa_FINAL;
+where abs(diff) > 0 and dsu_activity_date ne &text_date.;
+run;
+
+proc sql; 
+create table MEMBERSHIP_CHANGE_ipa_email as
+select distinct sf_lob, master_ipa, wdw_ipa_id
+from membership_change_ipa_FINALa    ;
+run;
+ 
+
+proc sql; create table MEMBERSHIP_CHANGE_ipa_email1 as 
+select distinct a.*
+from membership_change_ipa_FINAL a inner join MEMBERSHIP_CHANGE_ipa_email b
+on a.sf_lob = b.sf_lob 
+and a.master_ipa = b.master_ipa
+and a.wdw_ipa_id = b.wdw_ipa_id;
+quit;
+
+
+proc export data=MEMBERSHIP_CHANGE_LOB_email dbms=csv
+outfile="/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Historic_Membership_Changes_LOB_&CurMo..csv"
+replace;
+run;
+proc export data=MEMBERSHIP_CHANGE_ipa_email1 dbms=csv
+outfile="/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Historic_Membership_Changes_IPA_&CurMo..csv"
+replace;
+run;
+ 
+proc sql; create table deal_terms as 
+select *
+/*distinct sf_lob, master_ipa, wdw_ipa_id */
+from membership_change_ipa_FINAL where dt_diff ne 0 and dsu_activity_Date ne &text_date.;
+quit;
+
+data deal_terms;
+set deal_terms;
+drop market total;
+run;
+
+
+proc sql; create table deal_terms_email as 
+select distinct a.*
+from membership_change_ipa_FINAL a inner join deal_terms b
+on a.sf_lob = b.sf_lob 
+and a.master_ipa = b.master_ipa
+and a.wdw_ipa_id = b.wdw_ipa_id;
+quit;
+
+proc export data=deal_terms_email dbms=csv
+outfile="/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Deal_Terms_Changes_&CurMo..csv"
+replace;
+run;
+
+proc sql; create table deal_terms_email_sum as 
+select distinct sf_lob, master_ipa, wdw_ipa_id 
+from deal_terms_email;
+quit;
+
+
+proc sql; create table max_dates as 
+select sf_lob , dsu_activity_date, member_count_a format comma30.2 , Member_Month_O_Month
+from membership_change_lob_FINAL
+group by sf_lob
+having dsu_Activity_date = max(dsu_activity_Date);
+quit;
+
+proc sql; create table lobs_w_historical_variance as 
+select distinct sf_lob from lob (where=(abs(diff_percent) >= &historic_threshold_percent./100)); 
+quit; 
+proc sql noprint;
+select sf_lob into : lobs_w_historical_variance separated by ', ' from lobs_w_historical_variance;
+quit;
+%put &lobs_w_historical_variance;
+
+ 
+ 
+	  
+					%SYMDEL ;
+
+
+
+					data test_ipa;
+					set MEMBERSHIP_CHANGE_ipa_FINAL(where=(dsu_activity_Date ne &text_date. )) ;
+					run;
+
+					proc sql; create table test_ipa0 as 
+					select sf_lob,   sum(member_count_b) as member_count_b format comma30.0 , sum(member_count_a) as member_count_a format comma30.0, sum(diff) as diff format comma30.0,
+					sum(calculated member_count_b, -calculated member_count_a ) / calculated member_count_b as percent_change format percent10.3
+					from test_ipa
+					group by sf_lob 
+					order by abs(calculated percent_change) desc;
+					quit;
+
+
+					data test_ipa0a (  drop= sf_lob percent_change) ;
+					set test_ipa0( drop= member_count_b member_count_a diff);
+					if _n_ <= 10 ; 
+					mail_tag = catx('  -  ', sf_lob , put(percent_change , percent10.3)) ; 
+					run;
+					
+ 
+					proc sql noprint;
+					select mail_tag into : mail_tag separated by ', ' from test_ipa0a;
+					quit;
+					%put &mail_tag;
+
+
+
+
+					proc sql; create table test_ipa1 as 
+					select sf_lob,   master_ipa, wdw_ipa_id,  sum(member_count_b) as member_count_b format comma30.0 , sum(member_count_a) as member_count_a format comma30.0, sum(diff) as diff format comma30.0,
+					sum(calculated member_count_b, -calculated member_count_a ) / calculated member_count_b as percent_change format percent10.3
+					from test_ipa
+					group by sf_lob, master_ipa , wdw_ipa_id	;
+					quit;
+
+					data test_ipa1_var;
+					set test_ipa1;
+					where abs(diff) > 0 ;
+					run;
+					proc sql ; create table test_ipa1_var as select * from test_ipa1_var order by abs(diff) desc; run;
+
+					proc sql; create table test_ipa1_var_1 as
+					select a.* 
+					from test_ipa a inner join test_ipa1_var b 
+					on a.sf_lob = b.sf_lob and a.master_ipa = b.masteR_ipa and a.wdw_ipa_id = b.wdw_ipa_id;
+					quit;
+
+
+
+proc export data=test_ipa1_var dbms=csv
+outfile="/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Summary_IPA_&CurMo..csv"
+replace;
+run;
+proc export data=test_ipa1_var_1 dbms=csv
+outfile="/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Summary_IPA_Detail_&CurMo..csv"
+replace;
+run;
+
+
+
+
+
+
+
+
+					data test_lob_cur_mo_gro;
+					set MEMBERSHIP_CHANGE_lob_FINAL(where=(dsu_activity_Date eq &text_date. )) ;
+					run;
+
+					 
+ 
+ 
+					
+ 
+					proc sql;
+					create table month_over_month_tag as 
+					select distinct catx('  -  ' ,sf_lob, put(Member_Month_O_Month ,percent10.3)) as mail_tag1
+			/*into : mail_tag1 separated by ', ' */
+					from test_lob_cur_mo_gro 
+					order by  abs(Member_Month_O_Month) desc;
+					quit;
+
+					data month_over_month_tag; set month_over_month_tag; if _n_<= 10; run;
+
+					proc sql noprint;  
+					select   mail_tag1 into : mail_tag1 separated by ', ' 
+					from month_over_month_tag ;
+					quit;
+
+
+					%put &mail_tag1;
+
+
+
+ 
+
+ 
+ proc contents data=current.sf_membership_count out=current_contents; 
+run; 
+
+
+proc sql; create table current_contents1 as 
+select distinct 'Date on which SF_membership_count was created/modified' as what , put(datepart(crDate),date9.) as Current   from current_contents;
+create table current_contents1a as 
+select distinct 'Number of Records' as what ,  nobs  as Current  from current_contents  union
+select distinct 'Number of Variables' as what ,  count(distinct name)  from current_contents  ;  
+quit;
+
+
+ 
+ proc contents data=prior.sf_membership_count out=prior_contents; 
+run; 
+
+
+proc sql; create table prior_contents1 as 
+select distinct 'Date on which SF_membership_count was created/modified' as what , put(datepart(crDate),date9.) as Prior   from prior_contents;
+create table prior_contents1a as 
+select distinct 'Number of Records' as what , nobs as Prior  from prior_contents  union
+select distinct 'Number of Variables' as what ,   count(distinct name)   from prior_contents  ;  
+quit;
+
+proc sql; create table contentsa as 
+select * , catx(' ',compress(put(input(current,date9.) - input(prior, date9.) ,best12.), ' ', ''), 'Days') as difference
+from current_contents1 a left join prior_contents1 b
+on a.what = b.what ;
+quit;
+
+
+proc sql; create table contentsb as 
+select * ,  current  -  prior  as difference
+from current_contents1a a inner join prior_contents1a b
+on a.what = b.what ;
+quit;
+
+proc sql; create table contentsb_2 as 
+select what , compress(put(current, best12.), ' ','') as current , compress(put(prior , best12.), ' ','') as prior, compress(put(difference, best12.), ' ','')  as difference
+from contentsb;
+quit;
+
+proc sql;  create table contents_mail as 
+select * from contentsa union 
+select * from contentsb_2;
+quit;
+
+ 
+
+
+
+
+ods graphics off; 
+
+%let workdir=%trim(%sysfunc(pathname(work)));
+ods _ALL_ close; 
+ods listing gpath="&workdir";
+ods graphics / reset=index outputfmt=PNG imagename='email' border=off ;  
+footnote "";
+
+ods graphics on / width=10in height=4in; 
+
+
+proc sgplot data= MEMBERSHIP_CHANGE_LOB_email  sganno= MEMBERSHIP_CHANGE_LOB_email ;
+title 'Membership Counts in Service Fund LOB: #byval(sf_lob)';
+;
+footnote;
+by sf_lob  ;
+scatter x=dsu_activity_date y=member_count_a /   markerattrs=(color=blue symbol=circlefilled)  legendlabel="Current Members" ;
+series  x=dsu_activity_date y=member_count_a/ lineattrs=(  color=blue pattern=solid) markerattrs=(color=blue symbol=circlefilled)  name="1" legendlabel="Current Members";
+series  x=dsu_activity_date y=member_count_b /   lineattrs=( color=purple pattern=dash) markerattrs=(color=purple symbol=circlefilled) name="2"  legendlabel="Prior Members";
+BAND X=dsu_activity_date LOWER=member_count_a UPPER=member_count_b/ fillattrs=(color = lightblue ) transparency=.5;
+refline &settlement. / axis=x;
+keylegend "1" "2" ; 
+xaxis MINORINTERVAL=MONTH  label="Activity Date";
+yaxis label="Current Membership";
+run;
+quit; 
+
+
+
+
+
+filename outbox email
+to=%str(&emailto)
+subject="Membership Variance Report"
+type="text/html"
+     attach=(
+	 "/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Deal_Terms_Changes_&CurMo..csv"
+	 "/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Historic_Membership_Changes_LOB_&CurMo..csv"
+	 "/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Historic_Membership_Changes_IPA_&CurMo..csv"
+	 "/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Summary_IPA_&CurMo..csv"
+	 "/data/dev/&user_name./Service_Fund/&CurMo./Variance_Reports/Membership_Variance_Report/Summary_IPA_Detail_&CurMo..csv"
+ &macro1.
+)
+
+;
+
+
+title;
+
+
+ods html body=outbox  style=emailrpt ;
+
+title;
+
+proc report data=deal_terms_email_sum nocenter missing   split='\'  
+    style(report) ={borderwidth=0  bordercolor=white just = c }       ;
+compute before _page_ / style=[fontstyle=roman fontsize=3    backgroundcolor=white  ] center;
+line   "
+<head>
+<style>
+
+.myDiv { 
+
+		display: inline-block;
+  text-align: center;
+ } 
+th, td {
+  padding: 2px;
+}
+
+.table {
+width:75%;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div class='myDiv'>
+<img src ='\\p1sasgrid02\data\dev\lilabaca\New codes\Support\Centene_Logo1.png'>
+<p> </p>
+<h1>Membership Variance Report  </h1>
+<p > <b>Member Count</b> - The IPAs total membership enrolled in a MA and MA-PD plans with Wellcare. - It does NOT include PDP members. </p>
+
+<p>
+Attachments can also be found here \\p1sasgrid02\data\dev\&user_name.\Service_Fund\&CurMo.\Variance_Reports\Membership_Variance_Report <br><br>
+
+
+
+<table  style='width:85%; '>
+  <tr>
+    <td><b>Deal_Terms_Changes_&CurMo..csv </b></td>
+    <td>Detail for IPAS who appear to have a Deal Term change</td>
+  </tr>
+  <tr>
+    <td><b>Historic_Membership_Changes_LOB_&CurMo..csv    </b></td>
+    <td>Detail at LOB and Activity Date level</td>
+  </tr>
+  <tr>
+    <td><b>Historic_Membership_Changes_IPA_&CurMo..csv    </b></td>
+    <td>Detail at LOB and IPA and Activity Date level</td>
+  </tr>
+  <tr>
+    <td><b>Summary_IPA_&CurMo..csv   </b></td>
+    <td>Summary by IPAs contributing to the Variance</td>
+  </tr>
+
+   <tr>
+    <td><b>Summary_IPA_Detail_&CurMo..csv   </b></td>
+    <td>Detail of Summary by IPAs contributing to the Variance</td>
+  </tr>
+
+</table>
+<br></p>
+
+<p>
+<h2>Research Sources</h2> 
+<p>The following tables can be used to research membership further.
+<br>
+
+
+<table style='width:85%; border: 1px solid white'>
+  <tr>
+    <td><b>GPDL_DSU.MEMBERSHIP</b></td>
+    <td>GreenPlum - data source for SF membership</td>
+  </tr>
+  <tr>
+    <td><b>HSDREPT.MEMBER_ADDRESS</b></td>
+    <td>Xcelys member information</td>
+  </tr>
+  <tr>
+    <td><b>HSDREPT.MEMBER_ELIG_HISTORY</b></td>
+    <td>Xcelys member information</td>
+  </tr>
+  <tr>
+    <td><b>HSDREPT.MEMBER_MASTER</b></td>
+    <td>Xcelys member information</td>
+  </tr>
+  <tr>
+    <td><b>P1SPDS-SERVFUND.T_SF_DETAIL_LMR</b></td>
+    <td>Member data before load to PMD</td>
+  </tr>
+  <tr>
+    <td><b>SF.SF_MEMBERSHIP_COUNT</b></td>
+    <td>Member count summary by LOB, MIPA, IPA</td>
+  </tr>
+  <tr>
+    <td><b>SPDSMED.PROF_MEMBERDATA_YYYYMM</b></td>
+    <td>Member level production data</td>
+  </tr>
+  <tr>
+    <td><b> SPDSSF1.D2_YYYYMM_MEMBERDATA</b></td>
+    <td>Member level source data for AccuReports</td>
+  </tr>
+   <tr>
+    <td><b>SPDSSF1.FRG_YYYYMM_PMD</b></td>
+    <td>Member level source data for AccuReports</td>
+  </tr>
+   <tr>
+    <td><b>SPDSSF2.RISK_MATRIX_MEMB_YYYYMM</b></td>
+    <td>Review set of risk matrix tables (total and state level)</td>
+  </tr>
+   <tr>
+    <td><b>SPDSSFD.SF_MEMBERSHIP_YYYYMM</b></td>
+    <td>Detail of Summary by IPAs contributing to the Variance</td>
+  </tr>
+</table>
+
+<p><br></p>
+
+</p>
+
+<h2>Deal Terms Changes </h2>
+<p>The summary below shows the DT changes reflected in the Membership Variance Report, the Attached file shows the details   </p>
+
+<p><br></p>
+
+
+</div>
+</body>" ;
+endcomp;
+
+
+
+define	sf_lob	/ display style = {just=center TAGATTR='format:#,##0'} 'LOB';
+define	master_ipa	/ display style = {just=center  } 'MIPA';
+define	wdw_ipa_id	/ display style = {just=center TAGATTR='format:#,##0'} 'IPA'; 
+
+
+
+run;
+ 
+
+ proc report data=contents_mail   missing LIST   split='\'  
+    style(report) ={borderwidth=0  bordercolor=white  just = c }       ;
+compute before _page_ / style=[fontstyle=roman fontsize=3     backgroundcolor=white  ]  ;
+line   "
+<head>
+<style>
+
+.myDiv3 { 
+  text-align: center;
+
+
+} 
+.table {
+width:75%;
+}
+
+</style>
+</head>
+
+
+<body>
+<div class='myDiv3'>
+<h2>Content Comparison</h2>
+<p>These are the contents in the SF Membership tables betweeb the <b>Current</b> and <b>Prior</b> Month <br> <br></p>
+</div>
+</body>" ;
+
+ endcomp;
+ 
+
+
+ 
+define	what	/ display style = {just=center  } 'Quantity';
+define	current	/ display style = {just=center  } 'Current\Month';
+define	prior / display style = {just=center  } 'Prior\Month';
+define	difference / WIDTH= 20 display style = {just=center } 'Difference';
+
+
+
+/**/
+/*compute after _page_ / style=[fontstyle=roman fontsize=3     backgroundcolor=white  ]  ;*/
+/*line   "  */
+/*<body>*/
+/*<div >*/
+/*<img src ='\\p1sasgrid02\data\dev\lilabaca\New codes\Support\Centene_Logo footer.png'>*/
+/*</div>*/
+/*</body>" ;*/
+/**/
+/*endcomp;*/
+
+run;
+
+
+proc report data=max_dates   missing   split='\'  
+    style(report) ={borderwidth=0  bordercolor=white  just = c }       ;
+compute before _page_ / style=[fontstyle=roman fontsize=3     backgroundcolor=white  ]  ;
+line   "
+<head>
+<style>
+
+.myDiv3 { 
+  text-align: center;
+
+} 
+
+.table {
+width:75%;
+}
+
+</style>
+</head>
+
+
+<body>
+<div class='myDiv3'>
+<h2>Latest Month Value by LOB. - See Activity Date and Member Counts</h2>
+<h2>Percentage change from Previous Month - See Month Over Month Growth</h2>
+<p>These are the values in the SF Membership tables for the Latest Month by LOB as well as the Month over Month Growth <br> <br></p>
+</div>
+</body>" ;
+
+ endcomp;
+
+COMPUTE dsu_activity_date;
+CALL DEFINE(_COL_, "style", "STYLE =[BACKGROUND=ALICEBLUE]");
+ENDCOMP; 
+COMPUTE Member_Month_O_Month;
+CALL DEFINE(_COL_, "style", "STYLE =[BACKGROUND=ALICEBLUE]");
+ENDCOMP; 
+
+
+
+format member_count_a comma30.0 ;
+define	sf_lob	/ display style = {just=center TAGATTR='format:#,##0'} 'LOB';
+define	dsu_activity_date	/ display style = {just=center  } 'Activity Date';
+define	member_count_a	/ display style = {just=center TAGATTR='format:#,##0.00'} 'Member Counts';
+define	Member_Month_O_Month	/ display style = {just=center } 'Month Over Month Growth';
+
+
+compute after _page_ / style=[fontstyle=roman fontsize=3    backgroundcolor=white  ] center;
+line   "
+<head>
+<style>
+
+.myDiv2 { 
+  text-align: center; 
+} 
+table{
+width:85%; border: 1px solid white
+}
+
+</style>
+</head>
+
+
+<body>
+<div class='myDiv2'>
+<br>
+<h2>Summary of all LOB's</h2>
+
+
+
+<table style='width:85%; border: 1px solid white'>
+  <tr>
+    <td><b>LOBs with a change of at least &historic_threshold_percent.% in any Prior Month<b/></td>
+    <td>&lobs_w_historical_variance.</td>
+  </tr>
+  <tr>
+    <td><b>LOBs with a change of at least 4% in the Current Month.</b></td>
+    <td>&mail_tag1.</td>
+  </tr>
+  <tr>
+    <td><b>Top 10 LOBs Total Historical Variances</b></td>
+    <td>&mail_tag.</td>
+  </tr>
+</table>
+
+";
+
+
+
+
+
+&macro3.;
+
+line "<img src ='\\p1sasgrid02\data\dev\lilabaca\New codes\Support\Centene_Logo footer.png'>
+      </div>";
+line "</body>" ;
+
+ endcomp;
+
+run;
+
+
+ods html close;
+filename outbox clear;
+ 
+
+
+
+
+
+
+ 
